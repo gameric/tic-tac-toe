@@ -33,6 +33,7 @@
 </template>
 
 <script lang="ts">
+import Vue from "vue";
 import Row from "@/components/Row.vue";
 import io from "socket.io-client";
 
@@ -47,7 +48,7 @@ interface IWinState {
   winner: string;
 }
 
-export default {
+export default Vue.extend({
   data() {
     return {
       myCharacter: "",
@@ -56,7 +57,7 @@ export default {
       turn: "",
       gameOverMessage: "",
       gameOverColor: "",
-      notifications: [],
+      notifications: [""],
     };
   },
   components: { Row },
@@ -131,7 +132,7 @@ export default {
     copyRoomURL() {
       this.notifications.push("Room URL copied");
       const el = document.createElement("input");
-      const url = new URL(window.location);
+      const url = new URL(window.location as any);
       url.searchParams.set("room", this.room);
       el.value = url.href;
       el.style.left = "-9999px";
@@ -140,10 +141,10 @@ export default {
       document.execCommand("copy");
       document.body.removeChild(el);
     },
-    notify(message) {
+    notify(message: string) {
       this.notifications.push(message);
     },
-    onTileClicked(e) {
+    onTileClicked(e: { x: number; y: number }) {
       socket.emit("tile-clicked", {
         room: this.room,
         location: e,
@@ -151,7 +152,7 @@ export default {
       });
     },
   },
-};
+});
 </script>
 
 <style>
