@@ -12,14 +12,15 @@
         />
       </tbody>
     </table>
-    <span class="game-state" v-if="gameOverMessage.length">{{
-      gameOverMessage
-    }}</span>
+    <span class="game-state" v-if="gameOver">{{ gameOverMessage }}</span>
     <div class="state-container game-state" v-else>
-      <span>You are {{ myCharacter }}</span>
+      <span>You are {{ myChar }}</span>
       <span>Turn: {{ turn }}</span>
     </div>
     <span class="room-number" @click="copyRoomURL">Room: {{ room }}</span>
+    <button class="game-state" @click="onNewGame" v-if="gameOver">
+      New game?
+    </button>
 
     <div class="notifications">
       <span
@@ -36,27 +37,29 @@
 import Vue from "vue";
 import Row from "@/components/Row.vue";
 import io from "socket.io-client";
+import {
+  IMyGameState,
+  IGameState,
+  IWinState,
+  getOpponent,
+  PLAYER,
+  ITileClickedEvent,
+  newBoard,
+  IPoint,
+} from "tic-tac-toe-shared";
 
-const socket = io("https://murmuring-fjord-44762.herokuapp.com/");
-
-function getBoard() {
-  return Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => ""));
-}
-
-interface IWinState {
-  isTie: boolean;
-  winner: string;
-}
+const socket = io("http://192.168.1.7:5000/");
 
 export default Vue.extend({
   data() {
     return {
-      myCharacter: "",
-      board: getBoard(),
-      room: "",
+      board: newBoard(),
       turn: "",
-      gameOverMessage: "",
+      room: "",
+      myChar: "",
+      gameOver: false,
       gameOverColor: "",
+      gameOverMessage: "",
       notifications: [""],
     };
   },
@@ -67,72 +70,64 @@ export default Vue.extend({
 
     const getGameOverBackgroundColor = (winState: IWinState) => {
       if (winState.isTie) return "yellow";
-      return winState.winner === this.myCharacter ? "green" : "red";
+      return winState.winner === this.myChar ? "green" : "red";
     };
 
     socket.on("connect", () => {
       if (currentRoom) socket.emit("join-room", currentRoom);
       else socket.emit("new-room");
 
-      socket.on("join-error", ({ message }: { message: string }) =>
+      socket.on("err", ({ message }: { message: string }) =>
         this.notify(message)
       );
 
       socket.on("game-over", (winState: IWinState) => {
         if (winState.isTie) this.gameOverMessage = "TIE - No one wins!";
         else this.gameOverMessage = `${winState.winner} WINS!`;
+        this.gameOver = true;
         this.gameOverColor = getGameOverBackgroundColor(winState);
       });
 
-      socket.on(
-        "joined-room",
-        (
-          data: {
-            room: string;
-            char: string;
-            turn: string;
-            board: string[][];
-            gameOver: boolean;
-            winner: string;
-          } & IWinState
-        ) => {
-          console.log("joined-room", data.room);
-          params.set("room", data.room);
-          this.myCharacter = data.char;
-          this.room = data.room;
-          this.board = data.board;
-          this.turn = data.turn;
-          if (data.gameOver) {
-            if (data.isTie) this.gameOverMessage = "TIE - No one wins!";
-            else this.gameOverMessage = `${data.winner} WINS!`;
-            this.gameOverColor = getGameOverBackgroundColor(data);
-          }
-          // if (!currentRoom) window.location.search = params.toString();
-        }
-      );
+      socket.on("new-game", (data: IGameState) => {
+        this.room = data.room;
+        this.board = data.board;
+        this.turn = data.turn;
+        this.gameOver = data.gameOver;
+        this.gameOverColor = "";
+        this.notify("A new game started");
+      });
 
-      socket.on("play-error", ({ message }: { message: string }) =>
-        this.notify(message)
-      );
-
-      socket.on(
-        "tile-clicked",
-        (data: { location: { x: number; y: number }; char: string }) => {
-          console.log("tile-clicked", data);
-          const { location, char } = data;
-          this.turn = this.turn === "X" ? "O" : "X";
-          this.board[location.x].splice(location.y, 1, char);
+      socket.on("joined-room", (data: IMyGameState) => {
+        this.myChar = data.myChar;
+        this.room = data.room;
+        this.board = data.board;
+        this.turn = data.turn;
+        this.gameOver = data.gameOver;
+        if (data.gameOver) {
+          if (data.isTie) this.gameOverMessage = "TIE - No one wins!";
+          else this.gameOverMessage = `${data.winner} WINS!`;
+          this.gameOverColor = getGameOverBackgroundColor(data);
         }
-      );
+        // if (!currentRoom) window.location.search = params.toString();
+      });
+
+      socket.on("tile-clicked", (data: ITileClickedEvent) => {
+        const { point, char } = data;
+        this.turn = getOpponent(this.turn as PLAYER);
+        this.board[point.x].splice(point.y, 1, char);
+      });
       socket.once("player-joined", () => this.notify("Player joined"));
     });
-    socket.on("disconnect", () => console.log("disconnected!"));
+    socket.on("disconnect", () => this.notify("disconnected"));
   },
   methods: {
+    onNewGame() {
+      socket.emit("new-game");
+    },
     copyRoomURL() {
       this.notifications.push("Room URL copied");
       const el = document.createElement("input");
-      const url = new URL(window.location as any);
+      const url = new URL(window.location.toString());
       url.searchParams.set("room", this.room);
       el.value = url.href;
       el.style.left = "-9999px";
@@ -144,12 +139,8 @@ export default Vue.extend({
     notify(message: string) {
       this.notifications.push(message);
     },
-    onTileClicked(e: { x: number; y: number }) {
-      socket.emit("tile-clicked", {
-        room: this.room,
-        location: e,
-        char: this.myCharacter,
-      });
+    onTileClicked(point: IPoint) {
+      socket.emit("tile-clicked", { point, char: this.myChar });
     },
   },
 });
